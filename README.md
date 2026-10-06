@@ -1,13 +1,13 @@
 # fan-vote
 
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
+![NestJS](https://img.shields.io/badge/NestJS-E0234E?style=for-the-badge&logo=nestjs&logoColor=white)
+![TypeORM](https://img.shields.io/badge/TypeORM-FE0902?style=for-the-badge&logo=typeorm&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL_16-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
+![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+![class-validator](https://img.shields.io/badge/class--validator-333333?style=for-the-badge)
+
 팬 투표 서비스의 미니 버전이다. NestJS와 PostgreSQL로 투표 API를 만들고, 중복 방지, 랭킹, 실시간 현황을 단계적으로 붙이는 포트폴리오 프로젝트다. 로그인은 구현하지 않으며, 투표 요청의 `userId`는 데모용이다.
-
-## 기술 스택
-
-- TypeScript, NestJS
-- TypeORM, PostgreSQL 16
-- Docker Compose
-- class-validator
 
 ## 실행 방법
 
@@ -47,7 +47,7 @@ curl -X POST http://localhost:3000/votes \
 
 - [x] 프로젝트 세팅 / 투표 API 기본
 - [x] 중복·동시성 처리
-- [ ] 랭킹 조회 및 인덱스 최적화
+- [x] 랭킹 조회 및 인덱스 최적화
 - [ ] WebSocket 실시간 현황
 
 ## 설계 메모
@@ -107,20 +107,80 @@ sequenceDiagram
 
 "하루 1회, 아티스트당"이 제약에 박혀 있다. 규칙을 바꾸면 제약과 마이그레이션도 같이 바꾼다.
 
-### 랭킹 속도
+### 랭킹 조회 최적화
 
-인덱스는 책 뒤의 찾아보기와 같다. 날짜와 아티스트를 같이 적어두면, 그날 표만 바로 찾을 수 있다.
+일별 랭킹은 하루치 표를 아티스트별로 센다. 누적 랭킹은 기간 없이 전부 센다. 표가 쌓이면 조회할 때마다 `vote`를 집계하는 비용이 커진다.
 
-같은 데이터로 넣기 전과 후를 비교했다. 숫자는 여러 번 잰 가운데 시간이다. 1ms는 1,000분의 1초다.
+#### 문제
+
+개선 전에는 `vote`를 `artistId`로 GROUP BY한 서브쿼리를 `artist`에 LEFT JOIN했다. 득표가 0인 아티스트도 포함한다. 일별 랭킹만 `votedDate`로 거른다.
+
+#### 측정 환경
+
+로컬 Docker의 PostgreSQL에서 쟀다. 운영 환경의 장비, 데이터 양, 동시 접속이 다르면 수치는 달라질 수 있다.
+
+`docs/perf/ranking-benchmark.md`에 적힌 환경이다.
 
 
-| 구분                  | 걸린 시간     | 읽은 범위    |
-| ------------------- | --------- | -------- |
-| 하루 순위 (넣기 전)        | 11.950 ms | 투표 기록 전체 |
-| 하루 순위 (넣은 뒤)        | 0.324 ms  | 그날 기록만   |
-| 전체 순위 (넣기 전)        | 46.620 ms | 투표 기록 전체 |
-| 전체 순위 (지금)          | 44.761 ms | 투표 기록 전체 |
-| 전체 순위 (합계를 미리 적은 뒤) | 0.044 ms  | 아티스트별 합계 |
+| 항목         | 값      |
+| ---------- | ------ |
+| PostgreSQL | 16     |
+| 실행 환경      | Docker |
+| 머신         |        |
+| 데이터 규모     |        |
 
 
-하루 순위는 약 37배 빨라졌다. 그날 표만 세기 때문이다. 전체 순위는 표를 전부 더하면 거의 그대로다. 아티스트마다 합계를 미리 적어 두면 0.044 ms까지 줄어, 약 1,000배 빠르다.
+#### 개선 전
+
+인덱스 없이 집계했다. 실행 계획과 중앙값은 측정 문서의 값이다.
+
+
+| 시나리오      | 인덱스 | 실행 계획(핵심 노드) | 중앙값(ms) |
+| --------- | --- | ------------ | ------- |
+| 일별 랭킹     | 없음  |              |         |
+| 누적 랭킹(집계) | 없음  |              |         |
+
+
+#### 시도 1. 인덱스
+
+`vote`에 `idx_votes_date_artist` (`votedDate`, `artistId`)를 걸었다. `WHERE`에 쓰는 날짜를 앞에 두고, `GROUP BY`에 쓰는 아티스트를 뒤에 두었다. 일별 랭킹은 그 날짜의 행만 인덱스에서 찾고, 아티스트별 집계까지 인덱스만으로 할 수 있다.
+
+#### 결과와 한계
+
+
+| 시나리오      | 인덱스                   | 실행 계획(핵심 노드)        | 중앙값(ms)   |
+| --------- | --------------------- | ------------------- | --------- |
+| 일별 랭킹     | 없음                    | 투표 테이블 병렬 전체 스캔     | 11.950 ms |
+| 일별 랭킹     | idx_votes_date_artist | 복합 인덱스 기반 인덱스 전용 스캔 | 0.324 ms  |
+| 누적 랭킹(집계) | 없음                    | 투표 테이블 병렬 전체 스캔     | 46.620 ms |
+| 누적 랭킹(집계) | idx_votes_date_artist | 투표 테이블 병렬 전체 스캔     | 44.761 ms |
+
+
+일별 랭킹은 `votedDate`로 거른다. 인덱스 첫 컬럼과 조건이 같다.
+
+누적 랭킹은 날짜 조건이 없다. 인덱스가 `votedDate`로 시작해도 더할 행을 골라 내지 못한다. 전체 합을 구하려면 `vote`의 모든 행을 읽어야 해서, 이 인덱스로는 읽을 양이 거의 줄지 않는다.
+
+#### 시도 2. 카운터 테이블
+
+`artist_vote_counts`에 아티스트별 `totalCount`를 둔다. 투표 INSERT와 같은 트랜잭션에서 `totalCount`를 1 올린다. 유니크 제약에 걸리면 트랜잭션이 롤백되어 카운터는 오르지 않는다. 누적 랭킹은 `artist`를 이 테이블에 LEFT JOIN한다. 행이 없는 아티스트는 0표다.
+
+
+| 시나리오           | 인덱스 | 실행 계획(핵심 노드)  | 중앙값(ms)  |
+| -------------- | --- | ------------- | -------- |
+| 누적 랭킹(카운터 테이블) |     | 투표 카운터 테이블 조회 | 0.044 ms |
+
+
+이미 쌓인 표는 `npm run backfill:counts`로 `vote`를 `artistId`로 묶어 카운터를 덮어쓴다.
+
+#### 트레이드오프
+
+조회는 투표 전체를 세지 않고 아티스트별 합계만 읽는다. 그 대신 투표가 성공할 때마다 UPDATE가 한 번 더 있다. 인기 아티스트는 카운터 행이 하나라 쓰기가 그 행에 몰린다. `vote`만 직접 고치면 합계와 어긋날 수 있어, 백필로 다시 맞춰야 한다.
+
+#### 다른 대안
+
+아래는 검토만 하고 구현하지 않았다.
+
+- Redis sorted set. 점수 증가와 순위 조회가 빠르다. 저장소가 늘고, PostgreSQL의 표와 점수가 어긋날 수 있다.
+- Materialized view와 주기적 갱신. 조회 SQL은 두고 결과만 미리 만들 수 있다. 갱신 전에는 순위가 오래되고, 갱신할 때는 전체 집계를 다시 한다.
+- 배치 집계. 투표 경로에는 비용이 없다. 배치가 돌기 전에는 순위가 늦다.
+

@@ -1,7 +1,12 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Artist } from '../artists/artist.entity.js';
+import { getTodayInSeoul } from '../common/date.util.js';
 import { User } from '../users/user.entity.js';
 import { CreateVoteDto } from './create-vote.dto.js';
 import { Vote } from './vote.entity.js';
@@ -29,7 +34,9 @@ export class VotesService {
       where: { id: createVoteDto.userId },
     });
     if (!user) {
-      throw new NotFoundException(`아이디가 ${createVoteDto.userId}인 유저를 찾을 수 없습니다.`);
+      throw new NotFoundException(
+        `아이디가 ${createVoteDto.userId}인 유저를 찾을 수 없습니다.`,
+      );
     }
 
     const artist = await this.artistRepository.findOne({
@@ -41,7 +48,7 @@ export class VotesService {
       );
     }
 
-    const votedDate = this.getServerToday();
+    const votedDate = getTodayInSeoul();
     const vote = this.voteRepository.create({
       user,
       artist,
@@ -83,14 +90,5 @@ export class VotesService {
       'code' in error.driverError &&
       error.driverError.code === '23505'
     );
-  }
-
-  private getServerToday(): string {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-
-    return `${year}-${month}-${day}`;
   }
 }

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
@@ -30,12 +31,13 @@ describe('Votes (e2e)', () => {
     await app.init();
 
     dataSource = app.get(DataSource);
-    const currentDatabaseRows: Array<{ current_database: string }> = await dataSource.query(
-      'SELECT current_database()',
-    );
+    const currentDatabaseRows: Array<{ current_database: string }> =
+      await dataSource.query('SELECT current_database()');
     const connectedDatabaseName = currentDatabaseRows[0]?.current_database;
     if (connectedDatabaseName !== 'fan_vote_test') {
-      throw new Error(`테스트 DB가 아닙니다. 현재 연결: ${connectedDatabaseName}`);
+      throw new Error(
+        `테스트 DB가 아닙니다. 현재 연결: ${connectedDatabaseName}`,
+      );
     }
 
     const artistRepository = dataSource.getRepository(Artist);
@@ -46,14 +48,18 @@ describe('Votes (e2e)', () => {
     });
     const artist =
       existingArtist ??
-      (await artistRepository.save(artistRepository.create({ name: testArtistName })));
+      (await artistRepository.save(
+        artistRepository.create({ name: testArtistName }),
+      ));
 
     const existingUser = await userRepository.findOne({
       where: { nickname: testUserNickname },
     });
     const user =
       existingUser ??
-      (await userRepository.save(userRepository.create({ nickname: testUserNickname })));
+      (await userRepository.save(
+        userRepository.create({ nickname: testUserNickname }),
+      ));
 
     artistId = artist.id;
     userId = user.id;
@@ -89,8 +95,12 @@ describe('Votes (e2e)', () => {
       ),
     );
 
-    const createdResponseCount = responses.filter((response) => response.status === 201).length;
-    const conflictResponseCount = responses.filter((response) => response.status === 409).length;
+    const createdResponseCount = responses.filter(
+      (response) => response.status === 201,
+    ).length;
+    const conflictResponseCount = responses.filter(
+      (response) => response.status === 409,
+    ).length;
 
     expect(createdResponseCount).toBe(1);
     expect(conflictResponseCount).toBe(49);
@@ -102,4 +112,85 @@ describe('Votes (e2e)', () => {
 
     expect(voteCountRows[0]?.count).toBe(1);
   });
+
+  it('같은 유저가 다른 아티스트에게 투표하면 둘 다 201', async () => {
+    const user = await createUser('다른아티스트');
+    const firstArtist = await createArtist('다른아티스트-1');
+    const secondArtist = await createArtist('다른아티스트-2');
+
+    await request(app.getHttpServer())
+      .post('/votes')
+      .send({ userId: user.id, artistId: firstArtist.id })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/votes')
+      .send({ userId: user.id, artistId: secondArtist.id })
+      .expect(201);
+  });
+
+  it('다른 유저가 같은 아티스트에게 투표하면 둘 다 201', async () => {
+    const artist = await createArtist('같은아티스트');
+    const firstUser = await createUser('같은아티스트-1');
+    const secondUser = await createUser('같은아티스트-2');
+
+    await request(app.getHttpServer())
+      .post('/votes')
+      .send({ userId: firstUser.id, artistId: artist.id })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/votes')
+      .send({ userId: secondUser.id, artistId: artist.id })
+      .expect(201);
+  });
+
+  it('같은 유저가 같은 아티스트에게 순차로 2번 투표하면 첫 번째는 201, 두 번째는 409', async () => {
+    const user = await createUser('중복투표');
+    const artist = await createArtist('중복투표');
+
+    await request(app.getHttpServer())
+      .post('/votes')
+      .send({ userId: user.id, artistId: artist.id })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/votes')
+      .send({ userId: user.id, artistId: artist.id })
+      .expect(409);
+  });
+
+  it('존재하지 않는 userId는 404', async () => {
+    const artist = await createArtist('없는유저');
+    const missingUserId = await findMissingUserId();
+
+    await request(app.getHttpServer())
+      .post('/votes')
+      .send({ userId: missingUserId, artistId: artist.id })
+      .expect(404);
+  });
+
+  async function createUser(nicknamePrefix: string): Promise<User> {
+    const userRepository = dataSource.getRepository(User);
+    return userRepository.save(
+      userRepository.create({ nickname: `${nicknamePrefix}-${randomUUID()}` }),
+    );
+  }
+
+  async function createArtist(namePrefix: string): Promise<Artist> {
+    const artistRepository = dataSource.getRepository(Artist);
+    return artistRepository.save(
+      artistRepository.create({ name: `${namePrefix}-${randomUUID()}` }),
+    );
+  }
+
+  async function findMissingUserId(): Promise<number> {
+    const latestUser = await dataSource
+      .getRepository(User)
+      .createQueryBuilder('user')
+      .select('MAX(user.id)', 'maxId')
+      .getRawOne<{ maxId: string | null }>();
+
+    return Number(latestUser?.maxId ?? 0) + 1;
+  }
 });

@@ -3,12 +3,12 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
   WebSocketGateway,
+  WebSocketServer,
 } from '@nestjs/websockets';
-import type { Socket } from 'socket.io';
+import type { Namespace, Socket } from 'socket.io';
+import type { ArtistRanking } from '../rankings/assign-ranks.js';
 import { RankingsService } from '../rankings/rankings.service.js';
-import { REALTIME_EVENTS } from './realtime.events.js';
-
-const TOP_RANKING_LIMIT = 10;
+import { REALTIME_EVENTS, TOP_RANKING_LIMIT } from './realtime.events.js';
 
 // 데모용이라 소켓 인증은 구현하지 않는다.
 @WebSocketGateway({
@@ -23,7 +23,14 @@ export class RankingsGateway
 {
   private readonly logger = new Logger(RankingsGateway.name);
 
+  @WebSocketServer()
+  private readonly rankingsNamespace: Namespace;
+
   constructor(private readonly rankingsService: RankingsService) {}
+
+  broadcastRankingUpdated(topRankings: ArtistRanking[]): void {
+    this.rankingsNamespace.emit(REALTIME_EVENTS.rankingUpdated, topRankings);
+  }
 
   async handleConnection(client: Socket): Promise<void> {
     this.logger.log(

@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Artist } from '../artists/artist.entity.js';
@@ -10,6 +11,10 @@ import { getTodayInSeoul } from '../common/date.util.js';
 import { User } from '../users/user.entity.js';
 import { CreateVoteDto } from './create-vote.dto.js';
 import { Vote } from './vote.entity.js';
+import {
+  VOTE_CREATED_EVENT,
+  type VoteCreatedEvent,
+} from './vote-created.event.js';
 
 export type CreatedVote = {
   id: number;
@@ -35,6 +40,7 @@ export class VotesService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(Artist)
     private readonly artistRepository: Repository<Artist>,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async createVote(createVoteDto: CreateVoteDto): Promise<CreatedVote> {
@@ -77,6 +83,16 @@ export class VotesService {
       }
       throw new ConflictException('오늘 이미 이 아티스트에게 투표했습니다.');
     }
+
+    // 트랜잭션이 커밋된 뒤에만 발행한다.
+    // 트랜잭션 안에서 발행하면 롤백되어도 구독자에게 알림이 간다.
+    // 409처럼 저장에 실패하면 예외로 이 줄에 도달하지 않아 이벤트가 발행되지 않는다.
+    const voteCreatedEvent: VoteCreatedEvent = {
+      artistId: createVoteDto.artistId,
+      userId: createVoteDto.userId,
+      votedDate: savedVote.votedDate,
+    };
+    this.eventEmitter.emit(VOTE_CREATED_EVENT, voteCreatedEvent);
 
     return {
       id: savedVote.id,

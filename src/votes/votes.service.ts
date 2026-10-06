@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Artist } from '../artists/artist.entity.js';
@@ -47,7 +47,17 @@ export class VotesService {
       artist,
       votedDate,
     });
-    const savedVote = await this.voteRepository.save(vote);
+
+    // 투표 존재 여부를 먼저 조회하지 않는다. 조회와 저장 사이에 다른 요청이 끼어들 수 있다.
+    let savedVote: Vote;
+    try {
+      savedVote = await this.voteRepository.save(vote);
+    } catch (error) {
+      if (!this.isPostgresUniqueViolation(error)) {
+        throw error;
+      }
+      throw new ConflictException('오늘 이미 이 아티스트에게 투표했습니다.');
+    }
 
     return {
       id: savedVote.id,
@@ -55,6 +65,24 @@ export class VotesService {
       artistId: createVoteDto.artistId,
       votedDate: savedVote.votedDate,
     };
+  }
+
+  private isPostgresUniqueViolation(error: unknown): boolean {
+    if (typeof error !== 'object' || error === null) {
+      return false;
+    }
+
+    if ('code' in error && error.code === '23505') {
+      return true;
+    }
+
+    return (
+      'driverError' in error &&
+      typeof error.driverError === 'object' &&
+      error.driverError !== null &&
+      'code' in error.driverError &&
+      error.driverError.code === '23505'
+    );
   }
 
   private getServerToday(): string {

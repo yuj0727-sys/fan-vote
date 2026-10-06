@@ -5,11 +5,13 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
   RelationId,
+  Unique,
 } from 'typeorm';
 import { Artist } from '../artists/artist.entity.js';
 import { User } from '../users/user.entity.js';
 
 @Entity()
+@Unique('UQ_vote_userId_artistId_votedDate', ['user', 'artist', 'votedDate'])
 export class Vote {
   @PrimaryGeneratedColumn()
   id: number;

@@ -6,6 +6,7 @@ import { ArtistsModule } from './artists/artists.module.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { User } from './users/user.entity.js';
+import { ArtistVoteCount } from './votes/artist-vote-count.entity.js';
 import { Vote } from './votes/vote.entity.js';
 import { RankingsModule } from './rankings/rankings.module.js';
 import { VotesModule } from './votes/votes.module.js';
@@ -25,7 +26,7 @@ import { VotesModule } from './votes/votes.module.js';
         username: configService.getOrThrow<string>('DB_USER'),
         password: configService.getOrThrow<string>('DB_PASSWORD'),
         database: configService.getOrThrow<string>('DB_NAME'),
-        entities: [User, Artist, Vote],
+        entities: [User, Artist, Vote, ArtistVoteCount],
         // 운영 환경에서는 마이그레이션 사용 필요
         synchronize: true,
       }),

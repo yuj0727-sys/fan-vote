@@ -34,16 +34,10 @@ const totalRankingSql = `
 SELECT
   "artist".id AS "artistId",
   "artist".name AS "name",
-  COALESCE(total_vote_count."voteCount", 0) AS "voteCount"
+  COALESCE(artist_vote_counts."totalCount", 0) AS "voteCount"
 FROM "artist"
-LEFT JOIN (
-  SELECT
-    "vote"."artistId" AS "artistId",
-    COUNT(*) AS "voteCount"
-  FROM "vote"
-  GROUP BY "vote"."artistId"
-) AS total_vote_count ON total_vote_count."artistId" = "artist".id
-ORDER BY COALESCE(total_vote_count."voteCount", 0) DESC, "artist".id ASC
+LEFT JOIN artist_vote_counts ON artist_vote_counts."artistId" = "artist".id
+ORDER BY COALESCE(artist_vote_counts."totalCount", 0) DESC, "artist".id ASC
 `;
 
 @Injectable()
@@ -70,7 +64,7 @@ function toArtistVoteCount(row: VoteCountRow): ArtistVoteCount {
   return {
     artistId: Number(row.artistId),
     name: row.name,
-    // PostgreSQL COUNT는 bigint라 node-pg가 문자열로 돌려준다.
+    // PostgreSQL bigint는 node-pg가 문자열로 돌려준다.
     voteCount: Number(row.voteCount),
   };
 }

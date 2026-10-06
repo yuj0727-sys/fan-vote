@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Artist } from '../artists/artist.entity.js';
 import { getTodayInSeoul } from '../common/date.util.js';
 import { User } from '../users/user.entity.js';
@@ -18,11 +18,19 @@ export type CreatedVote = {
   votedDate: string;
 };
 
+const incrementArtistVoteCountSql = `
+INSERT INTO artist_vote_counts ("artistId", "totalCount")
+VALUES ($1, 1)
+ON CONFLICT ("artistId") DO UPDATE
+SET
+  "totalCount" = artist_vote_counts."totalCount" + 1,
+  "updatedAt" = now()
+`;
+
 @Injectable()
 export class VotesService {
   constructor(
-    @InjectRepository(Vote)
-    private readonly voteRepository: Repository<Vote>,
+    private readonly dataSource: DataSource,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
     @InjectRepository(Artist)
@@ -49,16 +57,20 @@ export class VotesService {
     }
 
     const votedDate = getTodayInSeoul();
-    const vote = this.voteRepository.create({
-      user,
-      artist,
-      votedDate,
-    });
 
     // 투표 존재 여부를 먼저 조회하지 않는다. 조회와 저장 사이에 다른 요청이 끼어들 수 있다.
     let savedVote: Vote;
     try {
-      savedVote = await this.voteRepository.save(vote);
+      savedVote = await this.dataSource.transaction(async (manager) => {
+        const vote = manager.create(Vote, {
+          user,
+          artist,
+          votedDate,
+        });
+        const insertedVote = await manager.save(vote);
+        await manager.query(incrementArtistVoteCountSql, [artist.id]);
+        return insertedVote;
+      });
     } catch (error) {
       if (!this.isPostgresUniqueViolation(error)) {
         throw error;

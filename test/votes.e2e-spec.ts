@@ -66,7 +66,9 @@ describe('Votes (e2e)', () => {
   });
 
   beforeEach(async () => {
-    await dataSource.query('TRUNCATE TABLE "vote" RESTART IDENTITY');
+    await dataSource.query(
+      'TRUNCATE TABLE "vote", artist_vote_counts RESTART IDENTITY',
+    );
   });
 
   afterAll(async () => {
@@ -111,6 +113,35 @@ describe('Votes (e2e)', () => {
     );
 
     expect(voteCountRows[0]?.count).toBe(1);
+    expect(await findArtistTotalCount(artistId)).toBe(voteCountRows[0]?.count);
+  });
+
+  it('서로 다른 유저 30명이 동시에 같은 아티스트에게 투표하면 카운터는 30이다', async () => {
+    const artist = await createArtist('동시30');
+    const concurrentUserCount = 30;
+    const users = await Promise.all(
+      Array.from({ length: concurrentUserCount }, (_, index) =>
+        createUser(`동시30-${index}`),
+      ),
+    );
+
+    const responses = await Promise.all(
+      users.map((user) =>
+        request(app.getHttpServer())
+          .post('/votes')
+          .send({ userId: user.id, artistId: artist.id }),
+      ),
+    );
+
+    expect(responses.every((response) => response.status === 201)).toBe(true);
+
+    const voteCountRows: Array<{ count: number }> = await dataSource.query(
+      'SELECT COUNT(*)::int AS count FROM "vote" WHERE "artistId" = $1',
+      [artist.id],
+    );
+
+    expect(voteCountRows[0]?.count).toBe(concurrentUserCount);
+    expect(await findArtistTotalCount(artist.id)).toBe(concurrentUserCount);
   });
 
   it('같은 유저가 다른 아티스트에게 투표하면 둘 다 201', async () => {
@@ -182,6 +213,16 @@ describe('Votes (e2e)', () => {
     return artistRepository.save(
       artistRepository.create({ name: `${namePrefix}-${randomUUID()}` }),
     );
+  }
+
+  async function findArtistTotalCount(targetArtistId: number): Promise<number> {
+    const counterRows: Array<{ totalCount: string | number | null }> =
+      await dataSource.query(
+        'SELECT "totalCount" FROM artist_vote_counts WHERE "artistId" = $1',
+        [targetArtistId],
+      );
+
+    return Number(counterRows[0]?.totalCount ?? Number.NaN);
   }
 
   async function findMissingUserId(): Promise<number> {

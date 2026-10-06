@@ -39,7 +39,7 @@ describe('Rankings (e2e)', () => {
 
   beforeEach(async () => {
     await dataSource.query(
-      'TRUNCATE TABLE "vote", "artist", "user" RESTART IDENTITY CASCADE',
+      'TRUNCATE TABLE "vote", artist_vote_counts, "artist", "user" RESTART IDENTITY CASCADE',
     );
   });
 
@@ -232,6 +232,17 @@ describe('Rankings (e2e)', () => {
           artist: vote.artist,
           votedDate: vote.votedDate,
         }),
+      );
+      await dataSource.query(
+        `
+        INSERT INTO artist_vote_counts ("artistId", "totalCount")
+        VALUES ($1, 1)
+        ON CONFLICT ("artistId") DO UPDATE
+        SET
+          "totalCount" = artist_vote_counts."totalCount" + 1,
+          "updatedAt" = now()
+        `,
+        [vote.artist.id],
       );
     }
   }

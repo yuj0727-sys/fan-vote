@@ -16,6 +16,7 @@
     "start:prod": "node dist/main",
     "seed": "nest build && node dist/seed.js",
     "seed:bulk": "nest build && node dist/seed-bulk.js",
+    "backfill:counts": "nest build && node dist/backfill-counts.js",
     "lint": "oxlint src/ test/",
     "test": "vitest run",
     "test:watch": "vitest",

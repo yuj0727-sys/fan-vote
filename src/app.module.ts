@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Artist } from './artists/artist.entity.js';
 import { ArtistsModule } from './artists/artists.module.js';
@@ -9,6 +10,7 @@ import { User } from './users/user.entity.js';
 import { ArtistVoteCount } from './votes/artist-vote-count.entity.js';
 import { Vote } from './votes/vote.entity.js';
 import { RankingsModule } from './rankings/rankings.module.js';
+import { RealtimeModule } from './realtime/realtime.module.js';
 import { VotesModule } from './votes/votes.module.js';
 
 @Module({
@@ -34,6 +36,8 @@ import { VotesModule } from './votes/votes.module.js';
     ArtistsModule,
     VotesModule,
     RankingsModule,
+    EventEmitterModule.forRoot(),
+    RealtimeModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -7,6 +7,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { User } from './users/user.entity.js';
 import { Vote } from './votes/vote.entity.js';
+import { RankingsModule } from './rankings/rankings.module.js';
 import { VotesModule } from './votes/votes.module.js';
 
 @Module({
@@ -31,6 +32,7 @@ import { VotesModule } from './votes/votes.module.js';
     }),
     ArtistsModule,
     VotesModule,
+    RankingsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

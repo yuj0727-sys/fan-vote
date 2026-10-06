@@ -80,4 +80,26 @@ describe('Votes (e2e)', () => {
       votedDate: expect.any(String),
     });
   });
+
+  it('같은 유저가 같은 아티스트에게 동시에 50번 투표해도 1번만 반영된다', async () => {
+    const concurrentRequestCount = 50;
+    const responses = await Promise.all(
+      Array.from({ length: concurrentRequestCount }, () =>
+        request(app.getHttpServer()).post('/votes').send({ userId, artistId }),
+      ),
+    );
+
+    const createdResponseCount = responses.filter((response) => response.status === 201).length;
+    const conflictResponseCount = responses.filter((response) => response.status === 409).length;
+
+    expect(createdResponseCount).toBe(1);
+    expect(conflictResponseCount).toBe(49);
+
+    const voteCountRows: Array<{ count: number }> = await dataSource.query(
+      'SELECT COUNT(*)::int AS count FROM "vote" WHERE "userId" = $1 AND "artistId" = $2',
+      [userId, artistId],
+    );
+
+    expect(voteCountRows[0]?.count).toBe(1);
+  });
 });

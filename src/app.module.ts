@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Artist } from './artists/artist.entity.js';
+import { ArtistsModule } from './artists/artists.module.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { User } from './users/user.entity.js';
@@ -24,6 +25,7 @@ import { Vote } from './votes/vote.entity.js';
         synchronize: true,
       }),
     }),
+    ArtistsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
